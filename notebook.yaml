@@ -1,0 +1,47 @@
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  annotations:
+    notebooks.kubeflow.org/creator: user@example.com
+    notebooks.kubeflow.org/server-type: jupyter
+  generation: 1
+  labels:
+    app: t1
+  name: t1
+  namespace: kubeflow-user-example-com
+spec:
+  template:
+    spec:
+      containers:
+      - env: []
+        image: trandat81/jupyter-notebook:v2
+        imagePullPolicy: IfNotPresent
+        name: t1
+        resources:
+          limits:
+            cpu: "0.6"
+            memory: 1.2Gi
+          requests:
+            cpu: "0.5"
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: /var/run/docker.sock
+          name: docker-socket 
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /home/jovyan
+          name: t1-workspace
+      serviceAccountName: default-editor
+      tolerations: []
+      volumes:
+      volumes:
+      - name: docker-socket
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket
+      - emptyDir:
+          medium: Memory
+        name: dshm
+      - name: t1-workspace
+        persistentVolumeClaim:
+          claimName: t1-workspace

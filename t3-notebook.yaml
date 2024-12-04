@@ -1,0 +1,69 @@
+apiVersion: kubeflow.org/v1
+kind: Notebook
+metadata:
+  annotations:
+    notebooks.kubeflow.org/creator: user@example.com
+    notebooks.kubeflow.org/server-type: jupyter
+  creationTimestamp: "2024-12-04T06:34:52Z"
+  generation: 1
+  labels:
+    app: t3
+  name: t3
+  namespace: kubeflow-user-example-com
+  resourceVersion: "92084"
+  uid: ee68ba1b-6526-4a44-ba58-c5574c80a360
+spec:
+  template:
+    spec:
+      containers:
+      - env: []
+        image: trandat81/jupyter-notebook:v2
+        imagePullPolicy: IfNotPresent
+        name: t3
+        resources:
+          limits:
+            cpu: "0.6"
+            memory: 1.2Gi
+          requests:
+            cpu: "0.5"
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: /dev/shm
+          name: dshm
+        - mountPath: /home/jovyan
+          name: t3-workspace
+      serviceAccountName: default-editor
+      tolerations: []
+      volumes:
+      - emptyDir:
+          medium: Memory
+        name: dshm
+      - name: t3-workspace
+        persistentVolumeClaim:
+          claimName: t3-workspace
+status:
+  conditions:
+  - lastProbeTime: "2024-12-04T06:44:14Z"
+    lastTransitionTime: "2024-12-04T06:34:53Z"
+    status: "True"
+    type: PodReadyToStartContainers
+  - lastProbeTime: "2024-12-04T06:44:14Z"
+    lastTransitionTime: "2024-12-04T06:34:53Z"
+    status: "True"
+    type: Initialized
+  - lastProbeTime: "2024-12-04T06:44:14Z"
+    lastTransitionTime: "2024-12-04T06:44:14Z"
+    status: "True"
+    type: Ready
+  - lastProbeTime: "2024-12-04T06:44:14Z"
+    lastTransitionTime: "2024-12-04T06:44:14Z"
+    status: "True"
+    type: ContainersReady
+  - lastProbeTime: "2024-12-04T06:44:14Z"
+    lastTransitionTime: "2024-12-04T06:34:52Z"
+    status: "True"
+    type: PodScheduled
+  containerState:
+    running:
+      startedAt: "2024-12-04T06:44:11Z"
+  readyReplicas: 1
