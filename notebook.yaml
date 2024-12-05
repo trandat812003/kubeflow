@@ -34,7 +34,6 @@ spec:
       serviceAccountName: default-editor
       tolerations: []
       volumes:
-      volumes:
       - name: docker-socket
         hostPath:
           path: /var/run/docker.sock
