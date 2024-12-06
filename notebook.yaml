@@ -4,7 +4,6 @@ metadata:
   annotations:
     notebooks.kubeflow.org/creator: user@example.com
     notebooks.kubeflow.org/server-type: jupyter
-  generation: 1
   labels:
     app: t1
   name: t1
