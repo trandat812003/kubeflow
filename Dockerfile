@@ -15,6 +15,11 @@ RUN nohup containerd &
 
 COPY ./config.toml /etc/containerd/config.toml
 
-# USER $NB_USER
+# RUN chown -R root:root /var/lib/containerd && \
+    # chmod -R 755 /var/lib/containerd
+
+RUN usermod -aG root jovyan
+
+USER $NB_USER
 
 EXPOSE 8888
