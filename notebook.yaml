@@ -1,3 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: t1-workspace
+  namespace: kubeflow-user-example-com
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
 apiVersion: kubeflow.org/v1
 kind: Notebook
 metadata:
@@ -13,7 +25,7 @@ spec:
     spec:
       containers:
       - env: []
-        image: trandat81/jupyter-notebook:v2
+        image: trandat81/jupyter-notebook:v3
         imagePullPolicy: IfNotPresent
         name: t1
         resources:
@@ -24,8 +36,8 @@ spec:
             cpu: "0.5"
             memory: 1Gi
         volumeMounts:
-        - mountPath: /var/run/docker.sock
-          name: docker-socket 
+        - mountPath: /run/containerd/containerd.sock
+          name: containerd-socket 
         - mountPath: /dev/shm
           name: dshm
         - mountPath: /home/jovyan
@@ -33,9 +45,9 @@ spec:
       serviceAccountName: default-editor
       tolerations: []
       volumes:
-      - name: docker-socket
+      - name: containerd-socket
         hostPath:
-          path: /var/run/docker.sock
+          path: /run/containerd/containerd.sock
           type: Socket
       - emptyDir:
           medium: Memory
