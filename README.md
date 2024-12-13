@@ -23,11 +23,11 @@ sudo sysctl fs.inotify.max_user_watches=1255360
 # containerd
 
 ```
-docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock jupyter-notebook
+docker build -t jupyter-notebook .
 ```
 
 ```
-docker build -t jupyter-notebook .
+docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock jupyter-notebook
 ```
 
 ```

@@ -4,17 +4,3 @@ state = "/home/jovyan/containerd"
 
 [grpc]
   address = "/run/containerd/containerd.sock"
-
-# Plugin configuration
-[plugins."io.containerd.runtime.v2.task"]
-  runtime = "runc"  # Hoặc "crun" nếu bạn sử dụng crun
-  [plugins."io.containerd.runtime.v2.task"].platform = "linux/amd64"
-
-# Cấu hình cgroup driver cho containerd
-[plugins."io.containerd.grpc.v1.cri"]
-  [plugins."io.containerd.grpc.v1.cri".containerd]
-    [plugins."io.containerd.grpc.v1.cri".containerd.runtimes]
-      [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
-        runtime_type = "io.containerd.runc.v1"
-        [plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc.options]
-          SystemdCgroup = true
