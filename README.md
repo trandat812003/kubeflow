@@ -43,17 +43,17 @@ ctr run --rm docker.io/library/hello-world:latest hello-world-container
 ```
 
 ```
-rootlesskit --net=slirp4netns --copy-up=/home/jovyan/ --copy-up=/run --copy-up=/etc --state-dir=/home/jovyan/rootlesskit-containerd sh -c "rm -f /run/containerd; exec containerd -c /home/jovyan/config.toml"
+rootlesskit --net=slirp4netns --copy-up=/etc --copy-up=/run --state-dir=/home/jovyan/rootlesskit-containerd sh -c "rm -f /run/containerd; exec containerd -c /home/jovyan/config.toml"
 ```
 
 ```
-nsenter -U --preserve-credentials -m -n -t $(cat /home/jovyan/rootlesskit-containerd/child_pid)
-```
+unshare --user --map-root-user --net --mount
 
-```
-export CONTAINERD_ADDRESS=/run/containerd/containerd.sock
-```
+echo $$ > /tmp/pid
 
-```
-export CONTAINERD_SNAPSHOTTER=native
+echo "user.max_user_namespaces=28633"
+
+echo "kernel.unprivileged_userns_clone=1"
+
+sudo sysctl --system
 ```
