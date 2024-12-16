@@ -39,9 +39,15 @@ rootlesskit --net=slirp4netns --copy-up=/etc --copy-up=/run --state-dir=/home/jo
 ```
 
 ```
+nsenter -U --preserve-credentials -m -n -t $(cat /home/jovyan/rootlesskit-containerd/child_pid)
+export CONTAINERD_ADDRESS=/run/containerd/containerd.sock
+export CONTAINERD_SNAPSHOTTER=native
+```
+
+```
 ctr image pull docker.io/library/hello-world:latest
 ```
 
 ```
-ctr run --rm docker.io/library/hello-world:latest hello-world-container
+ctr run -t --rm --fifo-dir /tmp/foo-fifo --cgroup "" docker.io/library/hello-world:latest foo
 ```

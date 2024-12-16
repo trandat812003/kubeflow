@@ -9,4 +9,4 @@ state = "/home/jovyan/containerd"
   runtime_type = "io.containerd.runc.v1"
 
 [plugins."io.containerd.grpc.v1.cri".containerd]
-  cgroup_driver = "systemd"
+  cgroup_driver = "cgroupfs"
