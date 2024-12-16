@@ -6,11 +6,11 @@ RUN apt-get update
 RUN apt-get install -y curl 
 RUN apt-get install -y sudo 
 RUN apt-get install -y lsb-release 
-RUN apt-get install -y gnupg 
+RUN apt-get install -y gnupg uidmap
 RUN apt-get install -y ca-certificates 
 RUN apt-get install -y golang-go make
 RUN apt-get install -y iproute2
-RUN apt-get install -y autoconf 
+RUN apt-get install -y autoconf runc
 RUN apt-get install -y libglib2.0-dev pkg-config libslirp-dev libcap-dev libseccomp-dev
 RUN apt-get clean
 
@@ -20,6 +20,13 @@ RUN tar -C /usr/local -xvzf containerd.tar.gz
 RUN echo "user.max_user_namespaces=28633" >> /etc/sysctl.d/userns.conf
 RUN echo "kernel.unprivileged_userns_clone=1" >> /etc/sysctl.d/userns.conf
 RUN sysctl --system
+
+RUN mkdir -p /opt/cni/bin
+COPY ./cni-plugins-linux-amd64-v0.8.3.tgz cni-plugins-linux-amd64-v0.8.3.tgz
+RUN tar -xvf cni-plugins-linux-amd64-v0.8.3.tgz -C /opt/cni/bin/
+RUN mkdir -p /etc/cni/net.d
+COPY ./cni/10-bridge.conf /etc/cni/net.d/10-bridge.conf
+COPY ./cni/99-loopback.conf /etc/cni/net.d/99-loopback.conf
 
 USER jovyan
 
@@ -35,8 +42,9 @@ RUN cp slirp4netns ~/bin
 
 WORKDIR /home/jovyan
 
+ENV PATH="$HOME/bin:$PATH"
+ENV PATH=$PATH:/usr/sbin
 RUN echo 'alias rootlesskit="~/bin/rootlesskit"' >> ~/.bashrc
-RUN echo 'alias slirp4netns="~/bin/slirp4netns"' >> ~/.bashrc
 
 COPY ./config.toml /home/jovyan/config.toml
 

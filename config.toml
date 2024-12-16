@@ -4,3 +4,9 @@ state = "/home/jovyan/containerd"
 
 [grpc]
   address = "/run/containerd/containerd.sock"
+
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runc]
+  runtime_type = "io.containerd.runc.v1"
+
+[plugins."io.containerd.grpc.v1.cri".containerd]
+  cgroup_driver = "systemd"

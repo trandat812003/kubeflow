@@ -35,25 +35,13 @@ docker exec -it test bash
 ```
 
 ```
+rootlesskit --net=slirp4netns --copy-up=/etc --copy-up=/run --state-dir=/home/jovyan/rootlesskit-containerd sh -c "rm -f /run/containerd; exec containerd -c /home/jovyan/config.toml"
+```
+
+```
 ctr image pull docker.io/library/hello-world:latest
 ```
 
 ```
 ctr run --rm docker.io/library/hello-world:latest hello-world-container
-```
-
-```
-rootlesskit --net=slirp4netns --copy-up=/etc --copy-up=/run --state-dir=/home/jovyan/rootlesskit-containerd sh -c "rm -f /run/containerd; exec containerd -c /home/jovyan/config.toml"
-```
-
-```
-unshare --user --map-root-user --net --mount
-
-echo $$ > /tmp/pid
-
-echo "user.max_user_namespaces=28633"
-
-echo "kernel.unprivileged_userns_clone=1"
-
-sudo sysctl --system
 ```
