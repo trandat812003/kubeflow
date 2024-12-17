@@ -73,24 +73,25 @@ init() {
 	fi
 }
 
-install_s6_unit() {
+install_systemd_unit() {
 	unit="$1"
 	unit_file="${XDG_CONFIG_HOME}/s6/${unit}"
 	if [ -f "${unit_file}" ]; then
 		WARNING "File already exists, skipping: ${unit_file}"
 	else
 		INFO "Creating \"${unit_file}\""
-		mkdir -p "${XDG_CONFIG_HOME}/s6"
+		mkdir -p "${service_dir}/run"
+        mkdir -p "${service_dir}/finish"
 		cat >"${unit_file}"
-		s6-svc -d "${unit_file}"  # Để làm mới dịch vụ
+		systemctl --user daemon-reload
 	fi
-	if ! s6-ps | grep -q "${unit}"; then
-		INFO "Starting s6 unit \"${unit}\""
+	if ! systemctl --user --no-pager status "${unit}" >/dev/null 2>&1; then
+		INFO "Starting systemd unit \"${unit}\""
 		(
 			set -x
-			if ! s6-svc -u "${unit_file}"; then
+			if ! systemctl --user start "${unit}"; then
 				set +x
-				show_s6_error "${unit}"
+				show_systemd_error "${unit}"
 				exit 1
 			fi
 			sleep 3
@@ -98,15 +99,15 @@ install_s6_unit() {
 	fi
 	(
 		set -x
-		if ! s6-ps | grep -q "${unit}"; then
+		if ! systemctl --user --no-pager --full status "${unit}"; then
 			set +x
-			show_s6_error "${unit}"
+			show_systemd_error "${unit}"
 			exit 1
 		fi
-		s6-svc -u "${unit_file}"
+		systemctl --user enable "${unit}"
 	)
 	INFO "Installed \"${unit}\" successfully."
-	INFO "To control \"${unit}\", run: \`s6-svc (up|down|restart) ${unit}\`"
+	INFO "To control \"${unit}\", run: \`systemctl --user (start|stop|restart) ${unit}\`"
 }
 
 # CLI subcommand: "check"
@@ -199,4 +200,4 @@ fi
 
 # main
 shift
-"cmd_entrypoint_${command}" "$@"
+cmd_entrypoint_install "$@"

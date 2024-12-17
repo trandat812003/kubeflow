@@ -15,641 +15,184 @@
 #   limitations under the License.
 
 # -----------------------------------------------------------------------------
-# Forked from https://github.com/moby/moby/blob/v20.10.3/contrib/dockerd-rootless-setuptool.sh
+# Forked from https://github.com/moby/moby/blob/v20.10.3/contrib/dockerd-rootless.sh
 # Copyright The Moby Authors.
 # Licensed under the Apache License, Version 2.0
 # NOTICE: https://github.com/moby/moby/blob/v20.10.3/NOTICE
 # -----------------------------------------------------------------------------
 
-# containerd-rootless-setuptool.sh: setup tool for containerd-rootless.sh
-# Needs to be executed as a non-root user.
+# containerd-rootless.sh executes containerd in rootless mode.
 #
-# Typical usage: containerd-rootless-setuptool.sh install
-set -eu
+# Usage: containerd-rootless.sh [CONTAINERD_OPTIONS]
+#
+# External dependencies:
+# * newuidmap and newgidmap needs to be installed.
+# * /etc/subuid and /etc/subgid needs to be configured for the current user.
+# * RootlessKit (>= v0.10.0) needs to be installed. RootlessKit >= v2.0.0 is recommended.
+# * Either one of slirp4netns (>= v0.4.0), VPNKit, lxc-user-nic needs to be installed. slirp4netns >= v1.1.7 is recommended.
+#
+# Recognized environment variables:
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_STATE_DIR=DIR: the rootlesskit state dir. Defaults to "$XDG_RUNTIME_DIR/containerd-rootless".
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_NET=(slirp4netns|vpnkit|lxc-user-nic): the rootlesskit network driver. Defaults to "slirp4netns" if slirp4netns (>= v0.4.0) is installed. Otherwise defaults to "vpnkit".
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_MTU=NUM: the MTU value for the rootlesskit network driver. Defaults to 65520 for slirp4netns, 1500 for other drivers.
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER=(builtin|slirp4netns): the rootlesskit port driver. Defaults to "builtin".
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SANDBOX=(auto|true|false): whether to protect slirp4netns with a dedicated mount namespace. Defaults to "auto".
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SECCOMP=(auto|true|false): whether to protect slirp4netns with seccomp. Defaults to "auto".
+# * CONTAINERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS=(auto|true|false): whether to launch rootlesskit with the "detach-netns" mode.
+#   Defaults to "auto", which is resolved to "true" if RootlessKit >= 2.0 is installed.
+#   The "detached-netns" mode accelerates `nerdctl (pull|push|build)` and enables `nerdctl run --net=host`,
+#   however, there is a relatively minor drawback with BuildKit prior to v0.13:
+#   the host loopback IP address (127.0.0.1) and abstract sockets are exposed to Dockerfile's "RUN" instructions during `nerdctl build` (not `nerdctl run`).
+#   The drawback is fixed in BuildKit v0.13. Upgrading from a prior version of BuildKit needs removing the old systemd unit:
+#   `containerd-rootless-setuptool.sh uninstall-buildkit && rm -f ~/.config/buildkit/buildkitd.toml`
 
-# utility functions
-INFO() {
-	printf "\e[104m\e[97m[INFO]\e[49m\e[39m %s\n" "$*"
-}
+# See also: https://github.com/containerd/nerdctl/blob/main/docs/rootless.md#configuring-rootlesskit
 
-WARNING() {
-	>&2 printf "\e[101m\e[97m[WARNING]\e[49m\e[39m %s\n" "$*"
-}
-
-ERROR() {
-	>&2 printf "\e[101m\e[97m[ERROR]\e[49m\e[39m %s\n" "$*"
-}
-
-# constants
-CONTAINERD_ROOTLESS_SH="containerd-rootless.sh"
-SYSTEMD_CONTAINERD_UNIT="containerd.service"
-SYSTEMD_BUILDKIT_UNIT="buildkit.service"
-SYSTEMD_FUSE_OVERLAYFS_UNIT="containerd-fuse-overlayfs.service"
-SYSTEMD_STARGZ_UNIT="stargz-snapshotter.service"
-SYSTEMD_IPFS_UNIT="ipfs-daemon.service"
-SYSTEMD_BYPASS4NETNSD_UNIT="bypass4netnsd.service"
-
-# global vars
-ARG0="$0"
-REALPATH0="$(realpath "$ARG0")"
-BIN=""
-XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
-XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
-
-# run checks and also initialize global vars (BIN)
-init() {
-	id="$(id -u)"
-	# User verification: deny running as root
-	if [ "$id" = "0" ]; then
-		ERROR "Refusing to install rootless containerd as the root user"
-		exit 1
-	fi
-
-	# set BIN
-	if ! BIN="$(command -v "$CONTAINERD_ROOTLESS_SH" 2>/dev/null)"; then
-		ERROR "$CONTAINERD_ROOTLESS_SH needs to be present under \$PATH"
-		exit 1
-	fi
-	BIN=$(dirname "$BIN")
-
-	# detect systemd
-	if ! command -v s6-svscan >/dev/null 2>&1; then
-		ERROR "Needs systemd (systemctl --user)"
-		exit 1
-	fi
-
-	# HOME verification
-	if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
-		ERROR "HOME needs to be set"
-		exit 1
-	fi
-	if [ ! -w "$HOME" ]; then
-		ERROR "HOME needs to be writable"
-		exit 1
-	fi
-
-	# Validate XDG_RUNTIME_DIR
-	if [ -z "${XDG_RUNTIME_DIR:-}" ] || [ ! -w "$XDG_RUNTIME_DIR" ]; then
-		ERROR "Aborting because but XDG_RUNTIME_DIR (\"$XDG_RUNTIME_DIR\") is not set, does not exist, or is not writable"
-		ERROR "Hint: this could happen if you changed users with 'su' or 'sudo'. To work around this:"
-		ERROR "- try again by first running with root privileges 'loginctl enable-linger <user>' where <user> is the unprivileged user and export XDG_RUNTIME_DIR to the value of RuntimePath as shown by 'loginctl show-user <user>'"
-		ERROR "- or simply log back in as the desired unprivileged user (ssh works for remote machines, machinectl shell works for local machines)"
-		ERROR "See also https://rootlesscontaine.rs/getting-started/common/login/ ."
-		exit 1
-	fi
-}
-
-# CLI subcommand: "check"
-cmd_entrypoint_check() {
-	init
-	INFO "Checking RootlessKit functionality"
-	if ! rootlesskit \
-		--net=slirp4netns \
-		--disable-host-loopback \
-		--copy-up=/etc --copy-up=/run --copy-up=/var/lib \
-		true; then
-		ERROR "RootlessKit failed, see the error messages and https://rootlesscontaine.rs/getting-started/common/ ."
-		exit 1
-	fi
-
-	INFO "Checking cgroup v2"
-	controllers="/sys/fs/cgroup/user.slice/user-${id}.slice/user@${id}.service/cgroup.controllers"
-	if [ ! -f "${controllers}" ]; then
-		WARNING "Enabling cgroup v2 is highly recommended, see https://rootlesscontaine.rs/getting-started/common/cgroup2/ "
-	else
-		for f in cpu memory pids; do
-			if ! grep -qw "$f" "$controllers"; then
-				WARNING "The cgroup v2 controller \"$f\" is not delegated for the current user (\"$controllers\"), see https://rootlesscontaine.rs/getting-started/common/cgroup2/"
-			fi
-		done
-	fi
-
-	INFO "Checking overlayfs"
-	tmp=$(mktemp -d)
-	mkdir -p "${tmp}/l" "${tmp}/u" "${tmp}/w" "${tmp}/m"
-	if ! rootlesskit mount -t overlay -o lowerdir="${tmp}/l,upperdir=${tmp}/u,workdir=${tmp}/w" overlay "${tmp}/m"; then
-		WARNING "Overlayfs is not enabled, consider installing fuse-overlayfs snapshotter (\`$0 install-fuse-overlayfs\`), " \
-			"or see https://rootlesscontaine.rs/how-it-works/overlayfs/ to enable overlayfs."
-	fi
-	rm -rf "${tmp}"
-	INFO "Requirements are satisfied"
-}
-
-propagate_env_from() {
-	pid="$1"
-	env="$(sed -e "s/\x0/'\n/g" <"/proc/${pid}/environ" | sed -Ee "s/^[^=]*=/export \0'/g")"
-	shift
-	for key in "$@"; do
-		eval "$(echo "$env" | grep "^export ${key=}")"
-	done
-}
-
-# CLI subcommand: "nsenter"
-cmd_entrypoint_nsenter() {
-	# No need to call init()
-	pid=$(cat "$XDG_RUNTIME_DIR/containerd-rootless/child_pid")
-	n=""
-	# If RootlessKit is running with `--detach-netns` mode, we do NOT enter the detached netns here
-	if [ ! -e "$XDG_RUNTIME_DIR/containerd-rootless/netns" ]; then
-		n="-n"
-	fi
-	propagate_env_from "$pid" ROOTLESSKIT_STATE_DIR ROOTLESSKIT_PARENT_EUID ROOTLESSKIT_PARENT_EGID
-	exec nsenter --no-fork --wd="$(pwd)" --preserve-credentials -m $n -U -t "$pid" -- "$@"
-}
-
-show_systemd_error() {
-	unit="$1"
-	n="20"
-	ERROR "Failed to start ${unit}. Run \`journalctl -n ${n} --no-pager --user --unit ${unit}\` to show the error log."
-	ERROR "Before retrying installation, you might need to uninstall the current setup: \`$0 uninstall; ${BIN}/rootlesskit rm -rf ${HOME}/.local/share/containerd\`"
-}
-
-install_systemd_unit() {
-	unit="$1"
-	unit_file="${XDG_CONFIG_HOME}/systemd/user/${unit}"
-	if [ -f "${unit_file}" ]; then
-		WARNING "File already exists, skipping: ${unit_file}"
-	else
-		INFO "Creating \"${unit_file}\""
-		mkdir -p "${XDG_CONFIG_HOME}/systemd/user"
-		cat >"${unit_file}"
-		systemctl --user daemon-reload
-	fi
-	if ! systemctl --user --no-pager status "${unit}" >/dev/null 2>&1; then
-		INFO "Starting systemd unit \"${unit}\""
-		(
-			set -x
-			if ! systemctl --user start "${unit}"; then
-				set +x
-				show_systemd_error "${unit}"
-				exit 1
-			fi
-			sleep 3
-		)
-	fi
-	(
-		set -x
-		if ! systemctl --user --no-pager --full status "${unit}"; then
-			set +x
-			show_systemd_error "${unit}"
-			exit 1
-		fi
-		systemctl --user enable "${unit}"
-	)
-	INFO "Installed \"${unit}\" successfully."
-	INFO "To control \"${unit}\", run: \`systemctl --user (start|stop|restart) ${unit}\`"
-}
-
-uninstall_systemd_unit() {
-	unit="$1"
-	unit_file="${XDG_CONFIG_HOME}/systemd/user/${unit}"
-	if [ ! -f "${unit_file}" ]; then
-		INFO "Unit ${unit} is not installed"
-		return
-	fi
-	(
-		set -x
-		systemctl --user stop "${unit}"
-	) || :
-	(
-		set -x
-		systemctl --user disable "${unit}"
-	) || :
-	rm -f "${unit_file}"
-	INFO "Uninstalled \"${unit}\""
-}
-
-# CLI subcommand: "install"
-cmd_entrypoint_install() {
-	init
-	cmd_entrypoint_check
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_CONTAINERD_UNIT}"
-		[Unit]
-		Description=containerd (Rootless)
-		Requires=dbus.socket
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		Environment=CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS=${CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS:-}
-		ExecStart=$BIN/${CONTAINERD_ROOTLESS_SH}
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		TimeoutSec=0
-		RestartSec=2
-		Restart=always
-		StartLimitBurst=3
-		StartLimitInterval=60s
-		LimitNOFILE=infinity
-		LimitNPROC=infinity
-		LimitCORE=infinity
-		TasksMax=infinity
-		Delegate=yes
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-	systemctl --user daemon-reload
-	INFO "To run \"${SYSTEMD_CONTAINERD_UNIT}\" on system startup automatically, run: \`sudo loginctl enable-linger $(id -un)\`"
-	INFO "------------------------------------------------------------------------------------------"
-	INFO "Use \`nerdctl\` to connect to the rootless containerd."
-	INFO "You do NOT need to specify \$CONTAINERD_ADDRESS explicitly."
-}
-
-# CLI subcommand: "install-buildkit"
-cmd_entrypoint_install_buildkit() {
-	init
-	if ! command -v "buildkitd" >/dev/null 2>&1; then
-		ERROR "buildkitd (https://github.com/moby/buildkit) needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! systemctl --user --no-pager status "${SYSTEMD_CONTAINERD_UNIT}" >/dev/null 2>&1; then
-		ERROR "Install containerd first (\`$ARG0 install\`)"
-		exit 1
-	fi
-	BUILDKITD_FLAG="--oci-worker=true --oci-worker-rootless=true --containerd-worker=false"
-	if buildkitd --help | grep -q bridge; then
-		# Available since BuildKit v0.13
-		BUILDKITD_FLAG="${BUILDKITD_FLAG} --oci-worker-net=bridge"
-	fi
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_BUILDKIT_UNIT}"
-		[Unit]
-		Description=BuildKit (Rootless)
-		PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		ExecStart="$REALPATH0" nsenter -- buildkitd ${BUILDKITD_FLAG}
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-}
-
-# CLI subcommand: "install-buildkit-containerd"
-cmd_entrypoint_install_buildkit_containerd() {
-	init
-	if ! command -v "buildkitd" >/dev/null 2>&1; then
-		ERROR "buildkitd (https://github.com/moby/buildkit) needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! systemctl --user --no-pager status "${SYSTEMD_CONTAINERD_UNIT}" >/dev/null 2>&1; then
-		ERROR "Install containerd first (\`$ARG0 install\`)"
-		exit 1
-	fi
-	UNIT_NAME=${SYSTEMD_BUILDKIT_UNIT}
-	BUILDKITD_FLAG="--oci-worker=false --containerd-worker=true --containerd-worker-rootless=true"
-	if [ -n "${CONTAINERD_NAMESPACE:-}" ]; then
-		UNIT_NAME="${CONTAINERD_NAMESPACE}-${SYSTEMD_BUILDKIT_UNIT}"
-		BUILDKITD_FLAG="${BUILDKITD_FLAG} --addr=unix://${XDG_RUNTIME_DIR}/buildkit-${CONTAINERD_NAMESPACE}/buildkitd.sock --root=${XDG_DATA_HOME}/buildkit-${CONTAINERD_NAMESPACE} --containerd-worker-namespace=${CONTAINERD_NAMESPACE}"
-	else
-		WARNING "buildkitd has access to images in \"buildkit\" namespace by default. If you want to give buildkitd access to the images in \"default\" namespace, run this command with CONTAINERD_NAMESPACE=default"
-	fi
-	if [ -n "${CONTAINERD_SNAPSHOTTER:-}" ]; then
-		BUILDKITD_FLAG="${BUILDKITD_FLAG} --containerd-worker-snapshotter=${CONTAINERD_SNAPSHOTTER}"
-	fi
-	if buildkitd --help | grep -q bridge; then
-		# Available since BuildKit v0.13
-		BUILDKITD_FLAG="${BUILDKITD_FLAG} --containerd-worker-net=bridge"
-	fi
-	cat <<-EOT | install_systemd_unit "${UNIT_NAME}"
-		[Unit]
-		Description=BuildKit (Rootless)
-		PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		ExecStart="$REALPATH0" nsenter -- buildkitd ${BUILDKITD_FLAG}
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-}
-
-# CLI subcommand: "install-bypass4netnsd"
-cmd_entrypoint_install_bypass4netnsd() {
-	init
-	if ! command -v "bypass4netnsd" >/dev/null 2>&1; then
-		ERROR "bypass4netnsd (https://github.com/rootless-containers/bypass4netns) needs to be present under \$PATH"
-		exit 1
-	fi
-	command_v_bypass4netnsd="$(command -v bypass4netnsd)"
-	# FIXME: bail if bypass4netnsd is an alias
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_BYPASS4NETNSD_UNIT}"
-		[Unit]
-		Description=bypass4netnsd (daemon for bypass4netns, accelerator for rootless containers)
-		# Not PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		ExecStart="${command_v_bypass4netnsd}"
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-	INFO "To use bypass4netnsd, set the \"nerdctl/bypass4netns=true\" annotation on containers, e.g., \`nerdctl run --annotation nerdctl/bypass4netns=true\`"
-}
-
-# CLI subcommand: "install-fuse-overlayfs"
-cmd_entrypoint_install_fuse_overlayfs() {
-	init
-	if ! command -v "containerd-fuse-overlayfs-grpc" >/dev/null 2>&1; then
-		ERROR "containerd-fuse-overlayfs-grpc (https://github.com/containerd/fuse-overlayfs-snapshotter) needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! command -v "fuse-overlayfs" >/dev/null 2>&1; then
-		ERROR "fuse-overlayfs (https://github.com/containers/fuse-overlayfs) needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! systemctl --user --no-pager status "${SYSTEMD_CONTAINERD_UNIT}" >/dev/null 2>&1; then
-		ERROR "Install containerd first (\`$ARG0 install\`)"
-		exit 1
-	fi
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_FUSE_OVERLAYFS_UNIT}"
-		[Unit]
-		Description=containerd-fuse-overlayfs (Rootless)
-		PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		ExecStart="$REALPATH0" nsenter containerd-fuse-overlayfs-grpc "${XDG_RUNTIME_DIR}/containerd-fuse-overlayfs.sock" "${XDG_DATA_HOME}/containerd-fuse-overlayfs"
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-	INFO "Add the following lines to \"${XDG_CONFIG_HOME}/containerd/config.toml\" manually, and then run \`systemctl --user restart ${SYSTEMD_CONTAINERD_UNIT}\`:"
-	cat <<-EOT
-		### BEGIN ###
-		[proxy_plugins]
-		  [proxy_plugins."fuse-overlayfs"]
-		    type = "snapshot"
-		    address = "${XDG_RUNTIME_DIR}/containerd-fuse-overlayfs.sock"
-		###  END  ###
-	EOT
-	INFO "Set \`export CONTAINERD_SNAPSHOTTER=\"fuse-overlayfs\"\` to use the fuse-overlayfs snapshotter."
-}
-
-# CLI subcommand: "install-stargz"
-cmd_entrypoint_install_stargz() {
-	init
-	if ! command -v "containerd-stargz-grpc" >/dev/null 2>&1; then
-		ERROR "containerd-stargz-grpc (https://github.com/containerd/stargz-snapshotter) needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! systemctl --user --no-pager status "${SYSTEMD_CONTAINERD_UNIT}" >/dev/null 2>&1; then
-		ERROR "Install containerd first (\`$ARG0 install\`)"
-		exit 1
-	fi
-	if [ ! -f "${XDG_CONFIG_HOME}/containerd-stargz-grpc/config.toml" ]; then
-		mkdir -p "${XDG_CONFIG_HOME}/containerd-stargz-grpc"
-		touch "${XDG_CONFIG_HOME}/containerd-stargz-grpc/config.toml"
-	fi
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_STARGZ_UNIT}"
-		[Unit]
-		Description=stargz snapshotter (Rootless)
-		PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		Environment=IPFS_PATH=${XDG_DATA_HOME}/ipfs
-		ExecStart="$REALPATH0" nsenter -- containerd-stargz-grpc -address "${XDG_RUNTIME_DIR}/containerd-stargz-grpc/containerd-stargz-grpc.sock" -root "${XDG_DATA_HOME}/containerd-stargz-grpc" -config "${XDG_CONFIG_HOME}/containerd-stargz-grpc/config.toml"
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-	INFO "Add the following lines to \"${XDG_CONFIG_HOME}/containerd/config.toml\" manually, and then run \`systemctl --user restart ${SYSTEMD_CONTAINERD_UNIT}\`:"
-	cat <<-EOT
-		### BEGIN ###
-		[proxy_plugins]
-		  [proxy_plugins."stargz"]
-		    type = "snapshot"
-		    address = "${XDG_RUNTIME_DIR}/containerd-stargz-grpc/containerd-stargz-grpc.sock"
-		###  END  ###
-	EOT
-	INFO "Set \`export CONTAINERD_SNAPSHOTTER=\"stargz\"\` to use the stargz snapshotter."
-}
-
-# CLI subcommand: "install-ipfs"
-cmd_entrypoint_install_ipfs() {
-	init
-	if ! command -v "ipfs" >/dev/null 2>&1; then
-		ERROR "ipfs needs to be present under \$PATH"
-		exit 1
-	fi
-	if ! systemctl --user --no-pager status "${SYSTEMD_CONTAINERD_UNIT}" >/dev/null 2>&1; then
-		ERROR "Install containerd first (\`$ARG0 install\`)"
-		exit 1
-	fi
-	IPFS_PATH="${XDG_DATA_HOME}/ipfs"
-	mkdir -p "${IPFS_PATH}"
-	cat <<-EOT | install_systemd_unit "${SYSTEMD_IPFS_UNIT}"
-		[Unit]
-		Description=ipfs daemon for rootless nerdctl
-		PartOf=${SYSTEMD_CONTAINERD_UNIT}
-
-		[Service]
-		Environment=PATH=$BIN:/sbin:/usr/sbin:$PATH
-		Environment=IPFS_PATH=${IPFS_PATH}
-		ExecStart="$REALPATH0" nsenter -- ipfs daemon $@
-		ExecReload=/bin/kill -s HUP \$MAINPID
-		RestartSec=2
-		Restart=always
-		Type=simple
-		KillMode=mixed
-
-		[Install]
-		WantedBy=default.target
-	EOT
-
-	# Avoid using 5001(api)/8080(gateway) which are reserved by tests.
-	# TODO: support unix socket
-	systemctl --user stop "${SYSTEMD_IPFS_UNIT}"
-	sleep 3
-	IPFS_PATH=${IPFS_PATH} ipfs config Addresses.API "/ip4/127.0.0.1/tcp/5888"
-	IPFS_PATH=${IPFS_PATH} ipfs config Addresses.Gateway "/ip4/127.0.0.1/tcp/5889"
-	systemctl --user restart "${SYSTEMD_IPFS_UNIT}"
-	sleep 3
-
-	INFO "If you use stargz-snapshotter, add the following line to \"${XDG_CONFIG_HOME}/containerd-stargz-grpc/config.toml\" manually, and then run \`systemctl --user restart ${SYSTEMD_STARGZ_UNIT}\`:"
-	cat <<-EOT
-		### BEGIN ###
-		ipfs = true
-		###  END  ###
-	EOT
-	INFO "If you want to expose the port 4001 of ipfs daemon, re-install rootless containerd with CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS=\"--publish=0.0.0.0:4001:4001/tcp\" environment variable."
-	INFO "Set \`export IPFS_PATH=\"${IPFS_PATH}\"\` to use ipfs."
-}
-
-# CLI subcommand: "uninstall"
-cmd_entrypoint_uninstall() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_BUILDKIT_UNIT}"
-	if [ -n "${CONTAINERD_NAMESPACE:-}" ]; then
-		uninstall_systemd_unit "${CONTAINERD_NAMESPACE}-${SYSTEMD_BUILDKIT_UNIT}"
-	fi
-	uninstall_systemd_unit "${SYSTEMD_FUSE_OVERLAYFS_UNIT}"
-	uninstall_systemd_unit "${SYSTEMD_CONTAINERD_UNIT}"
-	uninstall_systemd_unit "${SYSTEMD_STARGZ_UNIT}"
-	uninstall_systemd_unit "${SYSTEMD_IPFS_UNIT}"
-	uninstall_systemd_unit "${SYSTEMD_BYPASS4NETNSD_UNIT}"
-
-	INFO "This uninstallation tool does NOT remove containerd binaries and data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${XDG_DATA_HOME}/containerd\`"
-}
-
-# CLI subcommand: "uninstall-buildkit"
-cmd_entrypoint_uninstall_buildkit() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_BUILDKIT_UNIT}"
-	INFO "This uninstallation tool does NOT remove data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${XDG_DATA_HOME}/buildkit\`"
-	if [ -e "${XDG_CONFIG_HOME}/buildkit/buildkitd.toml" ]; then
-		INFO "You may also want to remove the daemon config: \`rm -f ${XDG_CONFIG_HOME}/buildkit/buildkitd.toml\`"
-	fi
-}
-
-# CLI subcommand: "uninstall-buildkit-containerd"
-cmd_entrypoint_uninstall_buildkit_containerd() {
-	init
-	UNIT_NAME=${SYSTEMD_BUILDKIT_UNIT}
-	BUILDKIT_ROOT="${XDG_DATA_HOME}/buildkit"
-	if [ -n "${CONTAINERD_NAMESPACE:-}" ]; then
-		UNIT_NAME="${CONTAINERD_NAMESPACE}-${SYSTEMD_BUILDKIT_UNIT}"
-		BUILDKIT_ROOT="${XDG_DATA_HOME}/buildkit-${CONTAINERD_NAMESPACE}"
-	fi
-	uninstall_systemd_unit "${UNIT_NAME}"
-	INFO "This uninstallation tool does NOT remove data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${BUILDKIT_ROOT}\`"
-}
-
-# CLI subcommand: "uninstall-bypass4netnsd"
-cmd_entrypoint_uninstall_bypass4netnsd() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_BYPASS4NETNSD_UNIT}"
-}
-
-# CLI subcommand: "uninstall-fuse-overlayfs"
-cmd_entrypoint_uninstall_fuse_overlayfs() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_FUSE_OVERLAYFS_UNIT}"
-	INFO "This uninstallation tool does NOT remove data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${XDG_DATA_HOME}/containerd-fuse-overlayfs"
-}
-
-# CLI subcommand: "uninstall-stargz"
-cmd_entrypoint_uninstall_stargz() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_STARGZ_UNIT}"
-	INFO "This uninstallation tool does NOT remove data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${XDG_DATA_HOME}/containerd-stargz-grpc"
-}
-
-# CLI subcommand: "uninstall-ipfs"
-cmd_entrypoint_uninstall_ipfs() {
-	init
-	uninstall_systemd_unit "${SYSTEMD_IPFS_UNIT}"
-	INFO "This uninstallation tool does NOT remove data."
-	INFO "To remove data, run: \`$BIN/rootlesskit rm -rf ${XDG_DATA_HOME}/ipfs"
-}
-
-# text for --help
-usage() {
-	echo "Usage: ${ARG0} [OPTIONS] COMMAND"
-	echo
-	echo "A setup tool for Rootless containerd (${CONTAINERD_ROOTLESS_SH})."
-	echo
-	echo "Commands:"
-	echo "  check        Check prerequisites"
-	echo "  nsenter      Enter into RootlessKit namespaces (mostly for debugging)"
-	echo "  install      Install systemd unit and show how to manage the service"
-	echo "  uninstall    Uninstall systemd unit"
-	echo
-	echo "Add-on commands (BuildKit):"
-	echo "  install-buildkit            Install the systemd unit for BuildKit"
-	echo "  uninstall-buildkit          Uninstall the systemd unit for BuildKit"
-	echo
-	echo "Add-on commands (bypass4netnsd):"
-	echo "  install-bypass4netnsd       Install the systemd unit for bypass4netnsd"
-	echo "  uninstall-bypass4netnsd     Uninstall the systemd unit for bypass4netnsd"
-	echo
-	echo "Add-on commands (fuse-overlayfs):"
-	echo "  install-fuse-overlayfs      Install the systemd unit for fuse-overlayfs snapshotter"
-	echo "  uninstall-fuse-overlayfs    Uninstall the systemd unit for fuse-overlayfs snapshotter"
-	echo
-	echo "Add-on commands (stargz):"
-	echo "  install-stargz              Install the systemd unit for stargz snapshotter"
-	echo "  uninstall-stargz            Uninstall the systemd unit for stargz snapshotter"
-	echo
-	echo "Add-on commands (ipfs):"
-	echo "  install-ipfs [ipfs-daemon-flags...]  Install the systemd unit for ipfs daemon. Specify \"--offline\" if run the daemon in offline mode. Specify \"--init\" to initialize IPFS repository as well."
-	echo "  uninstall-ipfs                       Uninstall the systemd unit for ipfs daemon"
-	echo
-	echo "Add-on commands (BuildKit containerd worker):"
-	echo "  install-buildkit-containerd   Install the systemd unit for BuildKit with CONTAINERD_NAMESPACE=${CONTAINERD_NAMESPACE:-} and CONTAINERD_SNAPSHOTTER=${CONTAINERD_SNAPSHOTTER:-}"
-	echo "  uninstall-buildkit-containerd Uninstall the systemd unit for BuildKit with CONTAINERD_NAMESPACE=${CONTAINERD_NAMESPACE:-} and CONTAINERD_SNAPSHOTTER=${CONTAINERD_SNAPSHOTTER:-}"
-}
-
-# parse CLI args
-if ! args="$(getopt -o h --long help -n "$ARG0" -- "$@")"; then
-	usage
+set -e
+if ! [ -w "$XDG_RUNTIME_DIR" ]; then
+	echo "XDG_RUNTIME_DIR needs to be set and writable"
 	exit 1
 fi
-eval set -- "$args"
-while [ "$#" -gt 0 ]; do
-	arg="$1"
-	shift
-	case "$arg" in
-	-h | --help)
-		usage
-		exit 0
-		;;
-	--)
-		break
-		;;
-	*)
-		# XXX this means we missed something in our "getopt" arguments above!
-		ERROR "Scripting error, unknown argument '$arg' when parsing script arguments."
+if ! [ -w "$HOME" ]; then
+	echo "HOME needs to be set and writable"
+	exit 1
+fi
+: "${XDG_DATA_HOME:=$HOME/.local/share}"
+: "${XDG_CONFIG_HOME:=$HOME/.config}"
+
+if [ -z "$_CONTAINERD_ROOTLESS_CHILD" ]; then
+	if [ "$(id -u)" = "0" ]; then
+		echo "Must not run as root"
+		exit 1
+	fi
+	case "$1" in
+	"check" | "install" | "uninstall")
+		echo "Did you mean 'containerd-rootless-setuptool.sh $*' ?"
 		exit 1
 		;;
 	esac
-done
 
-command=$(echo "${1:-}" | sed -e "s/-/_/g")
-if [ -z "$command" ]; then
-	ERROR "No command was specified. Run with --help to see the usage. Maybe you want to run \`$ARG0 install\`?"
-	exit 1
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_STATE_DIR:=$XDG_RUNTIME_DIR/containerd-rootless}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_NET:=}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_MTU:=}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER:=builtin}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SANDBOX:=auto}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SECCOMP:=auto}"
+	: "${CONTAINERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS:=auto}"
+	net=$CONTAINERD_ROOTLESS_ROOTLESSKIT_NET
+	mtu=$CONTAINERD_ROOTLESS_ROOTLESSKIT_MTU
+	if [ -z "$net" ]; then
+		if command -v slirp4netns >/dev/null 2>&1; then
+			# If --netns-type is present in --help, slirp4netns is >= v0.4.0.
+			if slirp4netns --help | grep -qw -- --netns-type; then
+				net=slirp4netns
+				if [ -z "$mtu" ]; then
+					mtu=65520
+				fi
+			else
+				echo "slirp4netns found but seems older than v0.4.0. Falling back to VPNKit."
+			fi
+		fi
+		if [ -z "$net" ]; then
+			if command -v vpnkit >/dev/null 2>&1; then
+				net=vpnkit
+			else
+				echo "Either slirp4netns (>= v0.4.0) or vpnkit needs to be installed"
+				exit 1
+			fi
+		fi
+	fi
+	if [ -z "$mtu" ]; then
+		mtu=1500
+	fi
+
+	_CONTAINERD_ROOTLESS_CHILD=1
+	export _CONTAINERD_ROOTLESS_CHILD
+
+	# `selinuxenabled` always returns false in RootlessKit child, so we execute `selinuxenabled` in the parent.
+	# https://github.com/rootless-containers/rootlesskit/issues/94
+	if command -v selinuxenabled >/dev/null 2>&1; then
+		if selinuxenabled; then
+			_CONTAINERD_ROOTLESS_SELINUX=1
+			export _CONTAINERD_ROOTLESS_SELINUX
+		fi
+	fi
+
+	case "$CONTAINERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS" in
+	auto)
+		if  rootlesskit --help | grep -qw -- "--detach-netns"; then
+			CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS="--detach-netns $CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS"
+		fi
+		;;
+	1 | true)
+		CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS="--detach-netns $CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS"
+		;;
+	0 | false)
+		# NOP
+		;;
+	*)
+		echo "Unknown CONTAINERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS value: $CONTAINERD_ROOTLESS_ROOTLESSKIT_DETACH_NETNS"
+		exit 1
+		;;
+	esac
+
+	# Re-exec the script via RootlessKit, so as to create unprivileged {user,mount,network} namespaces.
+	#
+	# --copy-up allows removing/creating files in the directories by creating tmpfs and symlinks
+	# * /etc:     copy-up is required so as to prevent `/etc/resolv.conf` in the
+	#             namespace from being unexpectedly unmounted when `/etc/resolv.conf` is recreated on the host
+	#             (by either systemd-networkd or NetworkManager)
+	# * /run:     copy-up is required so that we can create /run/containerd (hardcoded) in our namespace
+	# * /var/lib: copy-up is required so that we can create /var/lib/containerd in our namespace
+	# shellcheck disable=SC2086
+	exec rootlesskit \
+		--state-dir="$CONTAINERD_ROOTLESS_ROOTLESSKIT_STATE_DIR" \
+		--net="$net" --mtu="$mtu" \
+		--slirp4netns-sandbox="$CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SANDBOX" \
+		--slirp4netns-seccomp="$CONTAINERD_ROOTLESS_ROOTLESSKIT_SLIRP4NETNS_SECCOMP" \
+		--disable-host-loopback --port-driver="$CONTAINERD_ROOTLESS_ROOTLESSKIT_PORT_DRIVER" \
+		--copy-up=/etc --copy-up=/run --copy-up=/var/lib \
+		--propagation=rslave \
+		$CONTAINERD_ROOTLESS_ROOTLESSKIT_FLAGS \
+		"$0" "$@"
+else
+	[ "$_CONTAINERD_ROOTLESS_CHILD" = 1 ]
+	# Remove the *symlinks* for the existing files in the parent namespace if any,
+	# so that we can create our own files in our mount namespace.
+	# The actual files in the parent namespace are *not removed* by this rm command.
+	rm -f /run/containerd /run/xtables.lock \
+		/var/lib/containerd /var/lib/cni /etc/containerd
+
+	# Bind-mount /etc/ssl.
+	# Workaround for "x509: certificate signed by unknown authority" on openSUSE Tumbleweed.
+	# https://github.com/rootless-containers/rootlesskit/issues/225
+	realpath_etc_ssl=$(realpath /etc/ssl)
+	rm -f /etc/ssl
+	mkdir /etc/ssl
+	mount --rbind "${realpath_etc_ssl}" /etc/ssl
+
+	# Bind-mount /run/containerd
+	mkdir -p "${XDG_RUNTIME_DIR}/containerd" "/run/containerd"
+	mount --bind "${XDG_RUNTIME_DIR}/containerd" "/run/containerd"
+
+	# Bind-mount /var/lib/containerd
+	mkdir -p "${XDG_DATA_HOME}/containerd" "/var/lib/containerd"
+	mount --bind "${XDG_DATA_HOME}/containerd" "/var/lib/containerd"
+
+	# Bind-mount /var/lib/cni
+	mkdir -p "${XDG_DATA_HOME}/cni" "/var/lib/cni"
+	mount --bind "${XDG_DATA_HOME}/cni" "/var/lib/cni"
+
+	# Bind-mount /etc/containerd
+	mkdir -p "${XDG_CONFIG_HOME}/containerd" "/etc/containerd"
+	mount --bind "${XDG_CONFIG_HOME}/containerd" "/etc/containerd"
+
+	if [ -n "$_CONTAINERD_ROOTLESS_SELINUX" ]; then
+		# iptables requires /run in the child to be relabeled. The actual /run in the parent is unaffected.
+		# https://github.com/containers/podman/blob/e6fc34b71aa9d876b1218efe90e14f8b912b0603/libpod/networking_linux.go#L396-L401
+		# https://github.com/moby/moby/issues/41230
+		chcon system_u:object_r:iptables_var_run_t:s0 /run
+	fi
+
+	exec containerd "$@"
 fi
-
-if ! command -v "cmd_entrypoint_${command}" >/dev/null 2>&1; then
-	ERROR "Unknown command: ${command}. Run with --help to see the usage."
-	exit 1
-fi
-
-# main
-shift
-"cmd_entrypoint_${command}" "$@"
