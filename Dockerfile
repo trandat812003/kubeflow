@@ -34,7 +34,7 @@ USER jovyan
 # RUN chmod +x slirp4netns
 
 RUN mkdir -p ~/bin
-RUN curl -fsSL https://github.com/rootless-containers/rootlesskit/releases/download/v2.3.1/rootlesskit-x86_64.tar.gz | tar Cxzv ~/bin
+RUN curl -fsSL https://github.com/rootless-containers/rootlesskit/releases/download/v1.1.0/rootlesskit-x86_64.tar.gz | tar Cxzv ~/bin
 RUN git clone https://github.com/rootless-containers/slirp4netns /home/jovyan/slirp4netns
 WORKDIR /home/jovyan/slirp4netns
 RUN ./autogen.sh && ./configure && make
