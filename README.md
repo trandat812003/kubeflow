@@ -31,6 +31,10 @@ docker run -it --privileged --name test --security-opt seccomp=unconfined --secu
 ```
 
 ```
+docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /sys/fs/cgroup:/sys/fs/cgroup:ro test
+```
+
+```
 docker exec -it test bash
 ```
 
