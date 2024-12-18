@@ -2,11 +2,12 @@ FROM kubeflownotebookswg/jupyter-scipy
 
 USER root
 
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirror.nus.edu.sg/ubuntu|g' /etc/apt/sources.list
+RUN sed -i 's|http://mirror.nus.edu.sg/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list
 RUN apt-get update
-RUN apt-get install -y curl 
-RUN apt-get install -y sudo systemd
-RUN apt-get install -y lsb-release 
-RUN apt-get install -y gnupg uidmap
+RUN apt-get install -y curl kmod slirp4netns
+RUN apt-get install -y lsb-release fuse-overlayfs
+RUN apt-get install -y gnupg uidmap iptables
 RUN apt-get install -y ca-certificates iproute2
 RUN apt-get clean
 
@@ -16,25 +17,15 @@ RUN tar -C /usr/local -xvzf containerd.tar.gz
 RUN wget https://github.com/containerd/nerdctl/releases/download/v2.0.2/nerdctl-full-2.0.2-linux-amd64.tar.gz
 RUN tar Cxzvvf /usr/local nerdctl-full-2.0.2-linux-amd64.tar.gz
 
+RUN chmod +x /usr/local/bin/containerd-rootless.sh
+RUN chmod +x /usr/bin/nsenter
+
 USER jovyan
-
-# COPY ./containerd-rootless-setuptool.sh /usr/local/bin/containerd-rootless-setuptool.sh
-# COPY ./containerd-rootless.sh /usr/local/bin/containerd-rootless.sh
-
-WORKDIR /home/jovyan/
-COPY ./test.sh test.sh
-
-
-# RUN containerd-rootless-setuptool.sh install
 
 ENV XDG_RUNTIME_DIR=/tmp/runtime-jovyan
+ENV CONTAINERD_SNAPSHOTTER=native
 RUN mkdir -p /tmp/runtime-jovyan
 
-USER root
-
-RUN chmod +x /usr/local/bin/containerd-rootless-setuptool.sh
-
-USER jovyan
-
+WORKDIR /home/jovyan/
 
 EXPOSE 8888

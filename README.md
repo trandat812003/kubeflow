@@ -23,15 +23,11 @@ sudo sysctl fs.inotify.max_user_watches=1255360
 # containerd
 
 ```
-docker build -t jupyter-notebook .
+docker build -t test .
 ```
 
 ```
-docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock jupyter-notebook
-```
-
-```
-docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /sys/fs/cgroup:/sys/fs/cgroup:ro test
+docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /lib/modules:/lib/modules test
 ```
 
 ```
@@ -39,19 +35,14 @@ docker exec -it test bash
 ```
 
 ```
-rootlesskit --net=slirp4netns --copy-up=/etc --copy-up=/run --state-dir=/home/jovyan/rootlesskit-containerd sh -c "rm -f /run/containerd; exec containerd -c /home/jovyan/config.toml"
+rootlesskit --net=slirp4netns --disable-host-loopback --copy-up=/etc --copy-up=/run --copy-up=/var/lib true
+containerd-rootless.sh
 ```
 
 ```
-nsenter -U --preserve-credentials -m -n -t $(cat /home/jovyan/rootlesskit-containerd/child_pid)
-export CONTAINERD_ADDRESS=/run/containerd/containerd.sock
-export CONTAINERD_SNAPSHOTTER=native
+nerdctl --snapshotter=native pull hello-world
 ```
 
 ```
-ctr image pull docker.io/library/hello-world:latest
-```
-
-```
-ctr run -t --rm --fifo-dir /tmp/foo-fifo --cgroup "" docker.io/library/hello-world:latest foo
+nerdctl --snapshotter=native run hello-world
 ```
