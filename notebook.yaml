@@ -16,6 +16,7 @@ metadata:
   annotations:
     notebooks.kubeflow.org/creator: user@example.com
     notebooks.kubeflow.org/server-type: jupyter
+    container.apparmor.security.beta.kubernetes.io/t1: unconfined
   labels:
     app: t1
   name: t1
@@ -25,9 +26,12 @@ spec:
     spec:
       containers:
       - env: []
-        image: trandat81/jupyter-notebook:v3
+        image: trandat81/jupyter-notebook:containerd-in-docker
         imagePullPolicy: IfNotPresent
         name: t1
+        securityContext:
+          seccompProfile:
+            type: Unconfined
         resources:
           limits:
             cpu: "0.6"
@@ -36,6 +40,8 @@ spec:
             cpu: "0.5"
             memory: 1Gi
         volumeMounts:
+        - mountPath: /lib/modules
+          name: lib-modules
         - mountPath: /run/containerd/containerd.sock
           name: containerd-socket 
         - mountPath: /dev/shm
@@ -45,6 +51,9 @@ spec:
       serviceAccountName: default-editor
       tolerations: []
       volumes:
+      - name: lib-modules
+        hostPath: 
+          path: /lib/modules
       - name: containerd-socket
         hostPath:
           path: /run/containerd/containerd.sock
