@@ -46,3 +46,9 @@ nerdctl --snapshotter=native pull hello-world
 ```
 nerdctl --snapshotter=native run hello-world
 ```
+
+#
+
+```
+kubectl label nodes kubeflow-control-plane topology.kubernetes.io/zone=us-west1
+```
