@@ -27,9 +27,10 @@ spec:
       containers:
       - env: []
         image: trandat81/jupyter-notebook:containerd-in-docker
-        imagePullPolicy: IfNotPresent
+        imagePullPolicy: Always #IfNotPresent
         name: t1
         securityContext:
+          privileged: true  # Thêm dòng này
           seccompProfile:
             type: Unconfined
         resources:
@@ -40,27 +41,35 @@ spec:
             cpu: "0.5"
             memory: 1Gi
         volumeMounts:
-        - mountPath: /lib/modules
-          name: lib-modules
         - mountPath: /run/containerd/containerd.sock
-          name: containerd-socket 
+          name: containerd-socket-pvc
+        - mountPath: /lib/modules/
+          name: lib-modules-pvc
         - mountPath: /dev/shm
           name: dshm
         - mountPath: /home/jovyan
           name: t1-workspace
+        - mountPath: /sys   # Mount /sys vào container
+          name: sysfs
+          readOnly: false
       serviceAccountName: default-editor
       tolerations: []
       volumes:
-      - name: lib-modules
-        hostPath: 
-          path: /lib/modules
-      - name: containerd-socket
-        hostPath:
-          path: /run/containerd/containerd.sock
-          type: Socket
+      - name: containerd-socket-pvc
+        persistentVolumeClaim:
+          claimName: containerd-socket-pvc
+          readOnly: false
+      - name: lib-modules-pvc
+        persistentVolumeClaim:
+          claimName: lib-modules-pvc
+          readOnly: false
       - emptyDir:
           medium: Memory
         name: dshm
       - name: t1-workspace
         persistentVolumeClaim:
           claimName: t1-workspace
+      - name: sysfs  # Thêm volume mount cho /sys
+        hostPath:
+          path: /sys
+          type: Directory

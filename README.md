@@ -29,6 +29,9 @@ docker build -t test .
 ```
 docker run -it --privileged --name test --security-opt seccomp=unconfined --security-opt apparmor=unconfined --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /lib/modules:/lib/modules test
 ```
+```
+docker run -it --privileged --name test --rm -p 8888:8888 -v /run/containerd/containerd.sock:/run/containerd/containerd.sock -v /lib/modules:/lib/modules test
+```
 
 ```
 docker exec -it test bash
@@ -36,6 +39,7 @@ docker exec -it test bash
 
 ```
 rootlesskit --net=slirp4netns --disable-host-loopback --copy-up=/etc --copy-up=/run --copy-up=/var/lib true
+/usr/bin/bash nsenter -- buildkitd --oci-worker=true --oci-worker-rootless=true --containerd-worker=false --oci-worker-net=bridge
 containerd-rootless.sh
 ```
 
