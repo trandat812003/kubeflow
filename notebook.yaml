@@ -16,7 +16,6 @@ metadata:
   annotations:
     notebooks.kubeflow.org/creator: user@example.com
     notebooks.kubeflow.org/server-type: jupyter
-    container.apparmor.security.beta.kubernetes.io/t1: unconfined
   labels:
     app: t1
   name: t1
@@ -30,9 +29,11 @@ spec:
         imagePullPolicy: Always #IfNotPresent
         name: t1
         securityContext:
-          privileged: true  # Thêm dòng này
-          seccompProfile:
-            type: Unconfined
+          privileged: true
+          allowPrivilegeEscalation: true
+          capabilities:
+            add:
+              - SYS_ADMIN
         resources:
           limits:
             cpu: "0.6"
@@ -49,7 +50,7 @@ spec:
           name: dshm
         - mountPath: /home/jovyan
           name: t1-workspace
-        - mountPath: /sys   # Mount /sys vào container
+        - mountPath: /sys
           name: sysfs
           readOnly: false
       serviceAccountName: default-editor
@@ -69,7 +70,7 @@ spec:
       - name: t1-workspace
         persistentVolumeClaim:
           claimName: t1-workspace
-      - name: sysfs  # Thêm volume mount cho /sys
+      - name: sysfs
         hostPath:
           path: /sys
           type: Directory

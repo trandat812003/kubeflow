@@ -7,7 +7,7 @@ RUN sed -i 's|http://mirror.nus.edu.sg/ubuntu|http://archive.ubuntu.com/ubuntu|g
 RUN apt-get update
 RUN apt-get install -y curl lsb-release gnupg ca-certificates net-tools
 RUN apt-get install -y linux-generic kmod slirp4netns fuse-overlayfs uidmap iptables iproute2
-RUN apt-get install -y util-linux
+RUN apt-get install -y util-linux sysbox-runc
 RUN apt-get clean
 
 RUN curl -sSL https://github.com/containerd/containerd/releases/download/v2.0.0/containerd-2.0.0-linux-amd64.tar.gz -o containerd.tar.gz

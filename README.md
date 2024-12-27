@@ -55,4 +55,8 @@ nerdctl --snapshotter=native run hello-world
 
 ```
 kubectl label nodes kubeflow-control-plane topology.kubernetes.io/zone=us-west1
+
+kubectl label namespace kubeflow-user-example-com pod-security.kubernetes.io/enforce=privileged
+kubectl label namespace kubeflow-user-example-com pod-security.kubernetes.io/audit=privileged
+kubectl label namespace kubeflow-user-example-com pod-security.kubernetes.io/warn=privileged
 ```
