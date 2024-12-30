@@ -20,8 +20,11 @@ FROM kubeflownotebookswg/jupyter-scipy AS notebook
 # COPY --from=triton /opt /opt
 # COPY --from=triton /lib/x86_64-linux-gnu /lib/x86_64-linux-gnu
 # COPY --from=triton /usr/lib/x86_64-linux-gnu /usr/lib/x86_64-linux-gnu
+USER jovyan
+
 COPY --from=triton / /
-COPY ./models /models
+# COPY ./models /models
+RUN mkdir /models
 
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 ENV tritonserver=/opt/tritonserver/bin/tritonserver
@@ -31,10 +34,4 @@ EXPOSE 8001
 EXPOSE 8002
 EXPOSE 8888
 
-# CMD ["tritonserver", "--model-repository=/models", "--log-format=default", "--log-file=/opt/tritonserver/logfile.log"] 
-# CMD ["tritonserver", "--model-repository=/models", "--cache-config=local,size=1000048576", "--log-verbose=1"]   
-# CMD ["tritonserver", "--model-repository=/models", "--log-format=default", "--log-file=/opt/tritonserver/logfile.log"]   
-# CMD ["tritonserver", "--model-repository=/models", "--log-verbose=2"]
-# CMD ["tritonserver", "--model-repository=/models"]  
-# CMD ["jupyter", "notebook", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root"]
-# jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+WORKDIR /

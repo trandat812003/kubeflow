@@ -1,6 +1,6 @@
 name: "test"
 backend: "python"
-max_batch_size: 16
+max_batch_size: 4
 
 input [
   {
@@ -19,3 +19,8 @@ output [
   }
 ]
 
+instance_group [
+  {
+    kind: KIND_CPU
+  }
+]
