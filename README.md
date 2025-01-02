@@ -1,7 +1,15 @@
 #
 
 ```
-docker run -p 8888:8888 -p 8000:8000 -p 8001:8001 -p 8002:8002 --rm -it test bash
+docker run --gpus=all -p 8888:8888 -p 8000:8000 -p 8001:8001 -p 8002:8002 --rm -it test bash
+```
+
+```
+helm repo add nvidia https://nvidia.github.io/gpu-operator
+
+helm repo update
+
+helm install --wait --generate-name nvidia/gpu-operator --namespace gpu-operator --create-namespace
 ```
 
 ```

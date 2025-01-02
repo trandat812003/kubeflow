@@ -1,5 +1,5 @@
 FROM nvcr.io/nvidia/tritonserver:23.09-py3 AS triton
-FROM kubeflownotebookswg/jupyter-scipy AS notebook
+FROM nvcr.io/nvidia/pytorch:23.09-py3 AS notebook
 
 USER root
 # RUN chmod -R 777 /var/lib/apt/lists/ 
@@ -13,11 +13,12 @@ RUN pip install numpy
 # RUN pip install onnx
 RUN pip install tritonclient[all]
 RUN pip install requests
-RUN git clone https://github.com/triton-inference-server/python_backend -b r23.10
 
-COPY --from=triton / /
+COPY --from=triton /opt/tritonserver /opt/tritonserver
+COPY --from=triton /usr/src/tensorrt /usr/src/tensorrt
+COPY --from=triton /lib/ /lib/
 
-USER jovyan
+RUN git clone https://github.com/triton-inference-server/python_backend -b r23.10 /opt/tritonserver/python_backend
 
 EXPOSE 8000
 EXPOSE 8001
