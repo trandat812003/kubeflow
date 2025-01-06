@@ -1,0 +1,30 @@
+apiVersion: kubeflow.org/v1alpha1
+kind: PodDefault
+metadata:
+  name: triton
+  namespace: kubeflow-user-example-com
+spec:
+  selector:
+    matchLabels:
+      environment: kubeflow-notebook
+  desc: "Triton in Notebooks" 
+  args:
+  - lab
+  - --notebook-dir='/workspace'
+  - --ip=0.0.0.0
+  - --no-browser
+  - --allow-root
+  - --port=8888
+  - --ServerApp.token=''
+  - --ServerApp.password=''
+  - --NotebookApp.token=''
+  - --NotebookApp.password=''
+  - --ServerApp.allow_origin='*'
+  - --ServerApp.authenticate_prometheus=False
+  - --ServerApp.base_url="$(NB_PREFIX)"
+  - --NotebookApp.base_url="$(NB_PREFIX)"
+  command:
+  - jupyter
+  env:
+    - name: NB_PREFIX
+      value: "/notebook/${NAMESPACE}/${NOTEBOOK_NAME}"
