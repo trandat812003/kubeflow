@@ -13,6 +13,10 @@ helm install --wait --generate-name nvidia/gpu-operator --namespace gpu-operator
 ```
 
 ```
+/opt/nvidia/nvidia_entrypoint.sh jupyter lab --notebook-dir='/workspace' --ip=0.0.0.0 --no-browser --allow-root --port=8888 --ServerApp.token='' --ServerApp.password='' --NotebookApp.token='' --NotebookApp.password='' --ServerApp.allow_origin='*' --ServerApp.authenticate_prometheus=False --ServerApp.base_url="$(NB_PREFIX)" --NotebookApp.base_url="$(NB_PREFIX)"
+```
+
+```
 /opt/tritonserver/bin/tritonserver --model-repository=/home/jovyan/models
 ```
 

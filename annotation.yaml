@@ -9,6 +9,7 @@ spec:
       environment: kubeflow-notebook
   desc: "Triton in Notebooks" 
   args:
+  - jupyter
   - lab
   - --notebook-dir='/workspace'
   - --ip=0.0.0.0
@@ -24,7 +25,7 @@ spec:
   - --ServerApp.base_url="$(NB_PREFIX)"
   - --NotebookApp.base_url="$(NB_PREFIX)"
   command:
-  - jupyter
+  - /opt/nvidia/nvidia_entrypoint.sh
   env:
     - name: NB_PREFIX
       value: "/notebook/${NAMESPACE}/${NOTEBOOK_NAME}"
