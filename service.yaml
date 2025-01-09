@@ -5,7 +5,7 @@ metadata:
   namespace: kubeflow-user-example-com
 spec:
   selector:
-    environment: kubeflow-notebook
+    environment: "true"
   ports:
     - protocol: TCP
       name: http

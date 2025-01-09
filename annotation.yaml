@@ -6,7 +6,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      environment: kubeflow-notebook
+      environment: "true"
   desc: "Triton in Notebooks" 
   args:
   - jupyter
