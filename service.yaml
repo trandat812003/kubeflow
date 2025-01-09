@@ -5,19 +5,19 @@ metadata:
   namespace: kubeflow-user-example-com
 spec:
   selector:
-    matchLabels:
-      environment: kubeflow-notebook 
+    environment: kubeflow-notebook
   ports:
     - protocol: TCP
-      port: 8888
-      targetPort: 8888
-    - protocol: TCP
+      name: http
       port: 8000
       targetPort: 8000 
     - protocol: TCP
+      name: grpc
       port: 8001
       targetPort: 8001
     - protocol: TCP
+      name: metrics
       port: 8002
       targetPort: 8002 
-  type: ClusterIP
+  # type: LoadBalancer
+  type: NodePort

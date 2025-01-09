@@ -26,6 +26,3 @@ spec:
   - --NotebookApp.base_url="$(NB_PREFIX)"
   command:
   - /opt/nvidia/nvidia_entrypoint.sh
-  env:
-    - name: NB_PREFIX
-      value: "/notebook/${NAMESPACE}/${NOTEBOOK_NAME}"

@@ -17,7 +17,15 @@ helm install --wait --generate-name nvidia/gpu-operator --namespace gpu-operator
 ```
 
 ```
-/opt/tritonserver/bin/tritonserver --model-repository=/home/jovyan/models
+/opt/tritonserver/bin/tritonserver --model-repository=/workspace/models
+```
+
+```
+kubectl get svc triton-notebook-service -n kubeflow-user-example-com
+
+kubectl get nodes -o wide
+
+kubectl port-forward svc/triton-notebook-service 8000:8000 8001:8001 8002:8002 -n kubeflow-user-example-com
 ```
 
 ```
