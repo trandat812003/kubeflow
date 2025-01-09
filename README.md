@@ -5,14 +5,6 @@ docker run --gpus=all -p 8888:8888 -p 8000:8000 -p 8001:8001 -p 8002:8002 --rm -
 ```
 
 ```
-helm repo add nvidia https://nvidia.github.io/gpu-operator
-
-helm repo update
-
-helm install --wait --generate-name nvidia/gpu-operator --namespace gpu-operator --create-namespace
-```
-
-```
 /opt/nvidia/nvidia_entrypoint.sh jupyter lab --notebook-dir='/workspace' --ip=0.0.0.0 --no-browser --allow-root --port=8888 --ServerApp.token='' --ServerApp.password='' --NotebookApp.token='' --NotebookApp.password='' --ServerApp.allow_origin='*' --ServerApp.authenticate_prometheus=False --ServerApp.base_url="$(NB_PREFIX)" --NotebookApp.base_url="$(NB_PREFIX)"
 ```
 
