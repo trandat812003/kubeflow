@@ -1,0 +1,48 @@
+# This file may be used to create an environment using:
+# $ conda create --name <env> --file <this file>
+# platform: linux-64
+# created-by: conda 24.11.1
+bitsandbytes==0.45.1
+bottleneck==1.4.2
+datasets==2.19.1
+decorator==5.1.1
+docker==7.1.0
+einops==0.8.0
+fastapi==0.115.7
+huggingface-hub==0.28.1
+ipython==8.30.0
+jedi==0.19.2
+jinja2==3.1.4
+matplotlib==3.10.0
+numpy==1.26.4
+nvidia-ml-py==12.560.30
+onnx==1.17.0
+openai==1.60.0
+pandas==2.2.3
+peft==0.14.0
+pillow==10.4.0
+pyaudio==0.2.11
+pydub==0.25.1
+python-dotenv==1.0.1
+requests==2.32.3
+scikit-learn==1.6.1
+scipy==1.15.1
+sentencepiece==0.2.0
+setuptools==75.1.0
+tiktoken==0.7.0
+torchaudio==2.5.1
+tqdm==4.66.5
+traitlets==5.14.3
+transformers==4.45.2
+triton-model-analyzer==1.47.0
+tritonclient==2.53.0
+typing-extensions==4.12.2
+typing_extensions==4.12.2
+vllm==0.6.6.post1
+librosa==0.10.2.post1
+soundfile==0.13.1
+uvicorn==0.34.0
+pytest==8.3.4
+flake8==7.1.1
+transformers_stream_generator==0.0.5
+jupyterlab
