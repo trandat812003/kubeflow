@@ -38,7 +38,7 @@ triton-model-analyzer==1.47.0
 tritonclient==2.53.0
 typing-extensions==4.12.2
 typing_extensions==4.12.2
-vllm==0.6.6.post1
+vllm==0.7.2
 librosa==0.10.2.post1
 soundfile==0.13.1
 uvicorn==0.34.0
