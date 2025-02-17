@@ -33,7 +33,7 @@ tiktoken==0.7.0
 torchaudio==2.5.1
 tqdm==4.66.5
 traitlets==5.14.3
-transformers==4.45.2
+transformers==4.48.0
 triton-model-analyzer==1.47.0
 tritonclient==2.53.0
 typing-extensions==4.12.2
