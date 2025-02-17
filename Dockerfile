@@ -1,26 +1,27 @@
-FROM nvcr.io/nvidia/tritonserver:23.09-py3 AS triton
-FROM nvcr.io/nvidia/pytorch:23.09-py3 AS notebook
+ARG TRITON_VERSION=24.12
 
-USER root
-# RUN chmod -R 777 /var/lib/apt/lists/ 
-RUN python3 -m pip install --upgrade pip
-RUN apt-get update && apt-get install -y libb64-0d
-RUN pip install torch 
-# RUN pip install transformers 
-RUN pip install numpy 
-# RUN pip install pydub 
-# RUN pip install torchaudio 
-# RUN pip install onnx
-RUN pip install tritonclient[all]
-RUN pip install requests
+FROM nvcr.io/nvidia/tritonserver:${TRITON_VERSION}-py3
 
-COPY --from=triton /opt/tritonserver /opt/tritonserver
-COPY --from=triton /usr/src/tensorrt /usr/src/tensorrt
-COPY --from=triton /lib/ /lib/
+ARG TRITON_VERSION
+ARG NB_PREFIX
+ENV NB_PREFIX=${NB_PREFIX}
 
-RUN git clone https://github.com/triton-inference-server/python_backend -b r23.10 /opt/tritonserver/python_backend
+RUN git clone https://github.com/triton-inference-server/python_backend -b r${TRITON_VERSION}
 
-EXPOSE 8000
-EXPOSE 8001
-EXPOSE 8002
-EXPOSE 8888
+RUN apt-get update && apt-get install -y \
+    portaudio19-dev \
+    libsndfile1 \
+    ffmpeg 
+
+RUN curl -sSL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null 
+RUN echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | tee /etc/apt/sources.list.d/ngrok.list 
+RUN apt update && apt install -y ngrok
+
+COPY ./requirements.txt /requirements.txt
+RUN pip install --no-cache-dir -r /requirements.txt
+
+EXPOSE 8000 8001 8002
+
+# ENTRYPOINT [ "jupyter", "lab", "--notebook-dir=", "--ip=0.0.0.0", "--no-browser", "--allow-root", "--port=8888", "--ServerApp.token=", "--ServerApp.password=", "--NotebookApp.token=", "--NotebookApp.password=", "--ServerApp.allow_origin=*", "--ServerApp.authenticate_prometheus=False", "--ServerApp.base_url=${NB_PREFIX}", "--NotebookApp.base_url=${NB_PREFIX}" ]
+ENTRYPOINT ["sh", "-c", "jupyter lab --notebook-dir=/ --ip=0.0.0.0 --no-browser --allow-root --port=8888 --ServerApp.token='' --ServerApp.password='' --NotebookApp.token='' --NotebookApp.password='' --ServerApp.allow_origin='*' --ServerApp.authenticate_prometheus=False --ServerApp.base_url=$NB_PREFIX --NotebookApp.base_url=$NB_PREFIX"]
+
